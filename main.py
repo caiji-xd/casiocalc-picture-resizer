@@ -101,8 +101,8 @@ class ImageProcessorApp(QMainWindow):
 
     def pixelate_image(self):
         if self.current_image:
-            # 将图像缩放到 192x93 分辨率
-            self.pixelated_image = self.current_image.resize((192, 93), Image.Resampling.NEAREST)
+            # 将图像缩放到 193x63 分辨率
+            self.pixelated_image = self.current_image.resize((193, 63), Image.Resampling.NEAREST)
             self.current_image = self.pixelated_image
             self.update_preview()
         else:
