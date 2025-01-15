@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox, QGridLayout
 )
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import Qt
@@ -10,7 +10,7 @@ from PIL import Image, ImageQt, ImageOps
 class ImageProcessorApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Image Processor")
+        self.setWindowTitle("四级灰度编辑器配套图片处理器")
         self.setGeometry(100, 100, 800, 600)
 
         # 主窗口布局
@@ -20,7 +20,7 @@ class ImageProcessorApp(QMainWindow):
 
         # 左侧控制区域
         self.control_frame = QWidget()
-        self.control_layout = QVBoxLayout(self.control_frame)
+        self.control_layout = QGridLayout(self.control_frame)  # 使用网格布局
         self.layout.addWidget(self.control_frame, stretch=1)
 
         # 右侧预览区域
@@ -37,35 +37,49 @@ class ImageProcessorApp(QMainWindow):
         self.pixelated_image = None
         self.current_image = None
 
+        # 红绿模式状态
+        self.red_green_mode = False
+
     def init_buttons(self):
         # 选择图片按钮
         self.select_button = QPushButton("选择图片")
         self.select_button.clicked.connect(self.select_image)
-        self.control_layout.addWidget(self.select_button)
+        self.select_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.select_button, 0, 0, 1, 2)  # 跨两列
 
         # 旋转按钮
         self.rotate_button = QPushButton("旋转")
         self.rotate_button.clicked.connect(self.rotate_image)
-        self.control_layout.addWidget(self.rotate_button)
+        self.rotate_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.rotate_button, 1, 0)
 
         # 像素化按钮
         self.pixelate_button = QPushButton("像素化")
         self.pixelate_button.clicked.connect(self.pixelate_image)
-        self.control_layout.addWidget(self.pixelate_button)
+        self.pixelate_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.pixelate_button, 1, 1)
 
         # 四级灰度化按钮
         self.grayscale_button = QPushButton("四级灰度化")
         self.grayscale_button.clicked.connect(self.grayscale_image)
-        self.control_layout.addWidget(self.grayscale_button)
+        self.grayscale_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.grayscale_button, 2, 0)
+
+        # 红绿模式按钮
+        self.red_green_button = QPushButton("红绿模式")
+        self.red_green_button.clicked.connect(self.toggle_red_green_mode)
+        self.red_green_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.red_green_button, 2, 1)
 
         # 导出按钮
         self.export_button = QPushButton("导出图片")
         self.export_button.clicked.connect(self.export_image)
-        self.control_layout.addWidget(self.export_button)
+        self.export_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.export_button, 3, 0, 1, 2)  # 跨两列
 
     def select_image(self):
         # 打开文件选择对话框
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", "图片文件 (*.jpg *.jpeg *.png *.bmp *.gif)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", "图片文件 (*.jpg *.jpeg *.png *.bmp *.gif *.webp)")
         if file_path:
             # 加载图像并显示在预览区
             self.image = Image.open(file_path)
@@ -78,11 +92,11 @@ class ImageProcessorApp(QMainWindow):
             qimage = ImageQt.ImageQt(self.current_image)
             pixmap = QPixmap.fromImage(qimage)
 
-            # 缩放图像以适应预览区域
+            # 使用最近邻插值缩放图像
             scaled_pixmap = pixmap.scaled(
                 self.preview_frame.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.FastTransformation  # 使用最近邻插值
             )
             self.preview_frame.setPixmap(scaled_pixmap)
 
@@ -101,8 +115,8 @@ class ImageProcessorApp(QMainWindow):
 
     def pixelate_image(self):
         if self.current_image:
-            # 将图像缩放到 193x63 分辨率
-            self.pixelated_image = self.current_image.resize((193, 63), Image.Resampling.NEAREST)
+            # 将图像缩放到 192x63 分辨率
+            self.pixelated_image = self.current_image.resize((192, 63), Image.Resampling.NEAREST)
             self.current_image = self.pixelated_image
             self.update_preview()
         else:
@@ -113,14 +127,69 @@ class ImageProcessorApp(QMainWindow):
             # 将图像转换为灰度图
             grayscale_image = ImageOps.grayscale(self.pixelated_image)
 
+            # 增强对比度，确保最浅色是白色
+            grayscale_image = ImageOps.autocontrast(grayscale_image)
+
             # 将灰度图转换为四级灰度
             quantized_image = grayscale_image.quantize(colors=4)
 
-            # 显示四级灰度图像
+            # 将四级灰度图像转换为 RGB 模式
+            quantized_image = quantized_image.convert("RGB")
+
+            # 获取四级灰度化后的四种颜色
+            colors = quantized_image.getcolors()
+            sorted_colors = sorted(colors, key=lambda x: sum(x[1]))  # 按颜色亮度排序
+
+            # 定义替换颜色
+            replace_colors = {
+                sorted_colors[0][1]: (0, 0, 0),  # 最浅色 -> 白色
+                sorted_colors[1][1]: (149, 149, 149),  # 第二浅色 -> #BABABA
+                sorted_colors[2][1]: (186, 186, 186),  # 第三浅色 -> #959595
+                sorted_colors[3][1]: (255, 255, 255),  # 第四浅色 -> 黑色
+            }
+
+            # 替换颜色
+            pixels = quantized_image.load()
+            for i in range(quantized_image.size[0]):
+                for j in range(quantized_image.size[1]):
+                    current_color = pixels[i, j]
+                    if current_color in replace_colors:
+                        pixels[i, j] = replace_colors[current_color]
+
+            # 如果红绿模式开启，应用红绿模式逻辑
+            if self.red_green_mode:
+                self.apply_red_green_mode(quantized_image)
+
+            # 显示处理后的图像
             self.current_image = quantized_image
             self.update_preview()
         else:
             QMessageBox.warning(self, "警告", "请先像素化图片")
+
+    def apply_red_green_mode(self, image):
+        pixels = image.load()
+        for i in range(image.size[0]):
+            for j in range(image.size[1]):
+                r, g, b = pixels[i, j]
+                if (r, g, b) == (186, 186, 186):  # #BABABA -> 浅绿色
+                    pixels[i, j] = (144, 238, 144)  # 浅绿色
+                elif (r, g, b) == (149, 149, 149):  # #959595 -> 红色
+                    pixels[i, j] = (255, 0, 0)  # 红色
+                # 白色和黑色保持不变
+
+    def toggle_red_green_mode(self):
+        # 切换红绿模式状态
+        self.red_green_mode = not self.red_green_mode
+
+        # 更新按钮文本
+        if self.red_green_mode:
+            self.red_green_button.setText("普通模式")
+        else:
+            self.red_green_button.setText("红绿模式")
+
+        # 如果当前有图像，重新应用灰度化处理
+        if self.pixelated_image:
+            self.grayscale_image()
 
     def export_image(self):
         if self.current_image:
