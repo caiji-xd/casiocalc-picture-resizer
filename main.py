@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox, QGridLayout
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox, QGridLayout, QCheckBox
 )
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import Qt
@@ -59,23 +59,28 @@ class ImageProcessorApp(QMainWindow):
         self.pixelate_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
         self.control_layout.addWidget(self.pixelate_button, 1, 1)
 
+        # 维持原比例复选框
+        self.maintain_aspect_ratio_checkbox = QCheckBox("维持原比例")
+        self.maintain_aspect_ratio_checkbox.setChecked(True)  # 默认勾选
+        self.control_layout.addWidget(self.maintain_aspect_ratio_checkbox, 2, 0, 1, 2)  # 跨两列
+
         # 四级灰度化按钮
         self.grayscale_button = QPushButton("四级灰度化")
         self.grayscale_button.clicked.connect(self.grayscale_image)
         self.grayscale_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.grayscale_button, 2, 0)
+        self.control_layout.addWidget(self.grayscale_button, 3, 0)
 
         # 红绿模式按钮
         self.red_green_button = QPushButton("红绿模式")
         self.red_green_button.clicked.connect(self.toggle_red_green_mode)
         self.red_green_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.red_green_button, 2, 1)
+        self.control_layout.addWidget(self.red_green_button, 3, 1)
 
         # 导出按钮
         self.export_button = QPushButton("导出图片")
         self.export_button.clicked.connect(self.export_image)
         self.export_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.export_button, 3, 0, 1, 2)  # 跨两列
+        self.control_layout.addWidget(self.export_button, 4, 0, 1, 2)  # 跨两列
 
     def select_image(self):
         # 打开文件选择对话框
@@ -115,8 +120,27 @@ class ImageProcessorApp(QMainWindow):
 
     def pixelate_image(self):
         if self.current_image:
-            # 将图像缩放到 192x63 分辨率
-            self.pixelated_image = self.current_image.resize((192, 63), Image.Resampling.NEAREST)
+            if self.maintain_aspect_ratio_checkbox.isChecked():
+                # 保持原比例，计算新的宽度
+                original_width, original_height = self.current_image.size
+                aspect_ratio = original_width / original_height
+                new_height = 63
+                new_width = int(new_height * aspect_ratio)
+
+                # 缩放图像
+                resized_image = self.current_image.resize((new_width, new_height), Image.Resampling.NEAREST)
+
+                # 创建一个 192x63 的空白图像
+                self.pixelated_image = Image.new("RGB", (192, 63), (255, 255, 255))
+
+                # 将缩放后的图像居中放置在空白图像上
+                x_offset = (192 - new_width) // 2
+                self.pixelated_image.paste(resized_image, (x_offset, 0))
+
+            else:
+                # 不保持原比例，直接缩放为 192x63
+                self.pixelated_image = self.current_image.resize((192, 63), Image.Resampling.NEAREST)
+
             self.current_image = self.pixelated_image
             self.update_preview()
         else:
@@ -196,8 +220,13 @@ class ImageProcessorApp(QMainWindow):
             # 打开文件保存对话框
             file_path, _ = QFileDialog.getSaveFileName(self, "保存图片", "", "图片文件 (*.png *.jpg *.bmp)")
             if file_path:
-                # 保存图像
-                self.current_image.save(file_path)
+                # 保存图像，保持原始大小
+                if self.maintain_aspect_ratio_checkbox.isChecked():
+                    # 如果维持原比例，导出时保持 192x63 大小
+                    self.current_image.resize((192, 63), Image.Resampling.NEAREST).save(file_path)
+                else:
+                    # 否则直接保存
+                    self.current_image.save(file_path)
                 QMessageBox.information(self, "成功", "图片已成功导出！")
         else:
             QMessageBox.warning(self, "警告", "没有图片可以导出")
