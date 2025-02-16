@@ -1,13 +1,31 @@
 import sys
 import cv2
 import numpy as np
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox, QGridLayout, QCheckBox
-)
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QPushButton, QFileDialog, QLabel, QMessageBox, QGridLayout, QCheckBox
+
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import Qt
-from PIL import Image, ImageQt, ImageOps
-
+from PIL import Image, ImageQt, ImageOps,ImageFile,ImageDraw
+import os, PyQt6
+dirname = os.path.dirname(PyQt6.__file__)
+qt_dir = os.path.join(dirname, 'Qt5', 'plugins', 'platforms')
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_dir
+def pixel_line(img:ImageFile.ImageFile):
+    # 读取图片宽高并乘以3
+    w = img.width * 3
+    h = img.height * 3
+    # 调整图片大小
+    img_resize = img.resize((w,h),Image.NEAREST)
+    # 初始化画笔
+    draw = ImageDraw.Draw(img_resize)
+    # 画竖线
+    for i in range(w):
+        draw.line([(2*i,0),(2*i,h)],fill=(0,0,255))
+    # 画横线
+    for j in range(h):
+        draw.line([(0,2*j),(w,2*j)],fill=(0,0,255))
+    # 返回图片
+    return img_resize
 
 class ImageProcessorApp(QMainWindow):
     def __init__(self):
@@ -75,7 +93,7 @@ class ImageProcessorApp(QMainWindow):
         # 二级灰度化复选框
         self.binary_grayscale_checkbox = QCheckBox("二级灰度化")
         self.binary_grayscale_checkbox.setChecked(False)  # 默认不勾选
-        self.control_layout.addWidget(self.binary_grayscale_checkbox, 4, 0, 1, 2)  # 跨两列
+        self.control_layout.addWidget(self.binary_grayscale_checkbox, 4, 0, 1, 1)  # 跨两列
 
         # 红绿模式按钮
         self.red_green_button = QPushButton("红绿模式")
@@ -83,11 +101,18 @@ class ImageProcessorApp(QMainWindow):
         self.red_green_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
         self.control_layout.addWidget(self.red_green_button, 3, 1)
 
+        # 像素边框按钮
+        self.pixel_border_button = QPushButton("像素边框(请最后再用)")
+        self.pixel_border_button.clicked.connect(self.pixel_border)
+        self.pixel_border_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.pixel_border_button, 5, 0, 1, 2) # 跨两列
+
         # 导出按钮
         self.export_button = QPushButton("导出图片")
         self.export_button.clicked.connect(self.export_image)
         self.export_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.export_button, 5, 0, 1, 2)  # 跨两列
+        self.control_layout.addWidget(self.export_button, 6, 0, 1, 2)  # 跨两列
+
 
     def select_image(self):
         # 打开文件选择对话框
@@ -96,6 +121,15 @@ class ImageProcessorApp(QMainWindow):
             # 加载图像并显示在预览区
             self.image = Image.open(file_path)
             self.current_image = self.image
+            self.update_preview()
+
+    def pixel_border(self):
+        if self.current_image:
+            # 调用 pixel_line 函数,并存储到 current_image
+            self.current_image = pixel_line(self.current_image)
+            # 标记
+            self.pixeled = True
+            # 更新预览
             self.update_preview()
 
     def update_preview(self):
@@ -239,10 +273,15 @@ class ImageProcessorApp(QMainWindow):
             # 打开文件保存对话框
             file_path, _ = QFileDialog.getSaveFileName(self, "保存图片", "", "图片文件 (*.png *.jpg *.bmp)")
             if file_path:
+                # 如果有像素边框,则直接保存(不进行resize)
+                if self.pixeled:
+                    self.current_image.save(file_path)
                 # 保存图像，保持原始大小
-                if self.maintain_aspect_ratio_checkbox.isChecked():
+                elif self.maintain_aspect_ratio_checkbox.isChecked():
                     # 如果维持原比例，导出时保持 192x63 大小
+
                     self.current_image.resize((192, 63), Image.Resampling.NEAREST).save(file_path)
+
                 else:
                     # 否则直接保存
                     self.current_image.save(file_path)
