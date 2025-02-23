@@ -12,18 +12,18 @@ qt_dir = os.path.join(dirname, 'Qt5', 'plugins', 'platforms')
 os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_dir
 def pixel_line(img:ImageFile.ImageFile):
     # 读取图片宽高并乘以3
-    w = img.width * 3
-    h = img.height * 3
+    w = img.width * 6
+    h = img.height * 6
     # 调整图片大小
     img_resize = img.resize((w,h),Image.NEAREST)
     # 初始化画笔
     draw = ImageDraw.Draw(img_resize)
     # 画竖线
     for i in range(w):
-        draw.line([(2*i,0),(2*i,h)],fill=(0,0,255))
+        draw.line([(6*i,0),(6*i,h)],fill=(0,0,255))
     # 画横线
     for j in range(h):
-        draw.line([(0,2*j),(w,2*j)],fill=(0,0,255))
+        draw.line([(0,6*j),(w,6*j)],fill=(0,0,255))
     # 返回图片
     return img_resize
 
@@ -32,7 +32,10 @@ class ImageProcessorApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("四级灰度编辑器配套图片处理器")
         self.setGeometry(100, 100, 800, 600)
-
+        # 是否有像素边框
+        self.pixeled = False
+        # 红绿模式前的四级像素模式
+        self.last_pixel_type = ""
         # 主窗口布局
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -88,31 +91,78 @@ class ImageProcessorApp(QMainWindow):
         self.grayscale_button = QPushButton("四级灰度化")
         self.grayscale_button.clicked.connect(self.grayscale_image)
         self.grayscale_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.grayscale_button, 3, 0)
+        self.control_layout.addWidget(self.grayscale_button, 3, 0,1,2)
 
-        # 二级灰度化复选框
-        self.binary_grayscale_checkbox = QCheckBox("二级灰度化")
-        self.binary_grayscale_checkbox.setChecked(False)  # 默认不勾选
-        self.control_layout.addWidget(self.binary_grayscale_checkbox, 4, 0, 1, 1)  # 跨两列
+        # 用opencv四级灰度化
+        self.grayscale_button = QPushButton("opencv四级灰度化\n(效果与上面有差异,\n仍在测试中)")
+        self.grayscale_button.clicked.connect(self._4level_cv2)
+        self.grayscale_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.grayscale_button, 4,0, 1,2)
+
+        # 二级灰度化按钮
+        self.binary_grayscale_button = QPushButton("二级灰度化")
+        self.binary_grayscale_button.clicked.connect(self._2level_gray)
+        self.binary_grayscale_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
+        self.control_layout.addWidget(self.binary_grayscale_button, 6, 0, 1, 2)  # 跨两列
 
         # 红绿模式按钮
         self.red_green_button = QPushButton("红绿模式")
         self.red_green_button.clicked.connect(self.toggle_red_green_mode)
         self.red_green_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.red_green_button, 3, 1)
+        self.control_layout.addWidget(self.red_green_button, 5,0, 1,2)
 
         # 像素边框按钮
         self.pixel_border_button = QPushButton("像素边框(请最后再用)")
         self.pixel_border_button.clicked.connect(self.pixel_border)
         self.pixel_border_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.pixel_border_button, 5, 0, 1, 2) # 跨两列
+        self.control_layout.addWidget(self.pixel_border_button, 7, 0, 1, 2) # 跨两列
 
         # 导出按钮
         self.export_button = QPushButton("导出图片")
         self.export_button.clicked.connect(self.export_image)
         self.export_button.setStyleSheet("QPushButton { padding: 10px; font-size: 14px; }")
-        self.control_layout.addWidget(self.export_button, 6, 0, 1, 2)  # 跨两列
+        self.control_layout.addWidget(self.export_button, 8, 0, 1, 2)  # 跨两列
 
+        # 版本号
+        self.info_label = QLabel("版本号: *请在发布时修改*\n本产品为完全免费的开源软件")
+        self.info_label.setFixedHeight(50) # 占高度50像素
+        self.control_layout.addWidget(self.info_label, 9, 0, 1, 2)
+
+    def _4level_cv2(self):
+        # 使用opencv将图片转为4级灰度(似乎效果比pillow更好,仅供测试)
+        # 将Pillow图像转换为OpenCV格式
+        if self.pixelated_image:
+            # 设置红绿模式的上一个模式标记
+            self.last_pixel_type = "cv2"
+            image_np = np.array(self.pixelated_image)
+            gray_image = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+
+            # 将灰度图像量化为四个级别
+            # 0-63 -> 0, 64-127 -> 85, 128-191 -> 170, 192-255 -> 255
+            four_level_image = np.clip((gray_image // 64) * 85, 0, 255).astype(np.uint8)
+
+            # 定义四个颜色级别
+            color_levels = {
+                0: (0, 0, 0),  # 最浅色 -> 白色
+                85: (149, 149, 149),  # 第二浅色 -> #959595
+                170: (186, 186, 186),  # 第三浅色 -> #BABABA
+                255: (255, 255, 255)  # 第四浅色 -> 黑色
+            }
+
+            # 创建一个新的RGB图像
+            rgb_image = np.zeros((gray_image.shape[0], gray_image.shape[1], 3), dtype=np.uint8)
+
+            # 替换颜色
+            for level, color in color_levels.items():
+                rgb_image[four_level_image == level] = color
+
+            # 将OpenCV图像转换回Pillow格式
+            four_level_pillow_image = Image.fromarray(rgb_image)
+
+            self.current_image = four_level_pillow_image
+            self.update_preview()
+        else:
+            QMessageBox.warning(self, "警告", "请先像素化图片")
 
     def select_image(self):
         # 打开文件选择对话框
@@ -127,10 +177,12 @@ class ImageProcessorApp(QMainWindow):
         if self.current_image:
             # 调用 pixel_line 函数,并存储到 current_image
             self.current_image = pixel_line(self.current_image)
-            # 标记
+            # 标记,以保证在导出图片时不进行resize
             self.pixeled = True
             # 更新预览
             self.update_preview()
+        else:
+            QMessageBox.warning(self, "警告", "请先选择图片")
 
     def update_preview(self):
         if self.current_image:
@@ -187,57 +239,59 @@ class ImageProcessorApp(QMainWindow):
         else:
             QMessageBox.warning(self, "警告", "请先选择图片")
 
+    def _2level_gray(self):
+        if self.pixelated_image:
+            # 使用 OpenCV 进行二级灰度化处理
+            image_np = np.array(self.pixelated_image)
+            gray_image = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+
+            # 使用自适应阈值增强辨识度
+            binary_image = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
+            # 将二值图像转换回 PIL 图像
+            self.current_image = Image.fromarray(binary_image).convert("RGB")
+            # 更新图像
+            self.update_preview()
+        else:
+            QMessageBox.warning(self, "警告", "请先像素化图片")
+
     def grayscale_image(self):
         if self.pixelated_image:
-            if self.binary_grayscale_checkbox.isChecked():
-                # 使用 OpenCV 进行二级灰度化处理
-                image_np = np.array(self.pixelated_image)
-                gray_image = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+            # 设置红绿模式的上一个模式标记
+            self.last_pixel_type = "grayscale"
+            grayscale_image = ImageOps.grayscale(self.pixelated_image)
 
-                # 使用自适应阈值增强辨识度
-                binary_image = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            # 增强对比度，确保最浅色是白色
+            grayscale_image = ImageOps.autocontrast(grayscale_image)
 
-                # 将二值图像转换回 PIL 图像
-                self.current_image = Image.fromarray(binary_image).convert("RGB")
-            else:
-                # 将图像转换为灰度图
-                grayscale_image = ImageOps.grayscale(self.pixelated_image)
+            # 将灰度图转换为四级灰度
+            quantized_image = grayscale_image.quantize(colors=4)
 
-                # 增强对比度，确保最浅色是白色
-                grayscale_image = ImageOps.autocontrast(grayscale_image)
+            # 将四级灰度图像转换为 RGB 模式
+            quantized_image = quantized_image.convert("RGB")
 
-                # 将灰度图转换为四级灰度
-                quantized_image = grayscale_image.quantize(colors=4)
+            # 获取四级灰度化后的四种颜色
+            colors = quantized_image.getcolors()
+            sorted_colors = sorted(colors, key=lambda x: sum(x[1]))  # 按颜色亮度排序
 
-                # 将四级灰度图像转换为 RGB 模式
-                quantized_image = quantized_image.convert("RGB")
+            # 定义替换颜色
+            replace_colors = {
+                sorted_colors[0][1]: (0, 0, 0),  # 最浅色 -> 白色
+                sorted_colors[1][1]: (149, 149, 149),  # 第二浅色 -> #BABABA
+                sorted_colors[2][1]: (186, 186, 186),  # 第三浅色 -> #959595
+                sorted_colors[3][1]: (255, 255, 255),  # 第四浅色 -> 黑色
+            }
 
-                # 获取四级灰度化后的四种颜色
-                colors = quantized_image.getcolors()
-                sorted_colors = sorted(colors, key=lambda x: sum(x[1]))  # 按颜色亮度排序
+            # 替换颜色
+            pixels = quantized_image.load()
+            for i in range(quantized_image.size[0]):
+                for j in range(quantized_image.size[1]):
+                    current_color = pixels[i, j]
+                    if current_color in replace_colors:
+                        pixels[i, j] = replace_colors[current_color]
 
-                # 定义替换颜色
-                replace_colors = {
-                    sorted_colors[0][1]: (0, 0, 0),  # 最浅色 -> 白色
-                    sorted_colors[1][1]: (149, 149, 149),  # 第二浅色 -> #BABABA
-                    sorted_colors[2][1]: (186, 186, 186),  # 第三浅色 -> #959595
-                    sorted_colors[3][1]: (255, 255, 255),  # 第四浅色 -> 黑色
-                }
-
-                # 替换颜色
-                pixels = quantized_image.load()
-                for i in range(quantized_image.size[0]):
-                    for j in range(quantized_image.size[1]):
-                        current_color = pixels[i, j]
-                        if current_color in replace_colors:
-                            pixels[i, j] = replace_colors[current_color]
-
-                # 如果红绿模式开启，应用红绿模式逻辑
-                if self.red_green_mode:
-                    self.apply_red_green_mode(quantized_image)
-
-                # 显示处理后的图像
-                self.current_image = quantized_image
+            # 显示处理后的图像
+            self.current_image = quantized_image
 
             self.update_preview()
         else:
@@ -253,20 +307,32 @@ class ImageProcessorApp(QMainWindow):
                 elif (r, g, b) == (149, 149, 149):  # #959595 -> 红色
                     pixels[i, j] = (255, 0, 0)  # 红色
                 # 白色和黑色保持不变
+        self.current_image = image
+        self.update_preview()
 
     def toggle_red_green_mode(self):
-        # 切换红绿模式状态
-        self.red_green_mode = not self.red_green_mode
-
-        # 更新按钮文本
-        if self.red_green_mode:
-            self.red_green_button.setText("普通模式")
-        else:
-            self.red_green_button.setText("红绿模式")
-
-        # 如果当前有图像，重新应用灰度化处理
         if self.pixelated_image:
-            self.grayscale_image()
+            # 切换红绿模式状态
+            self.red_green_mode = not self.red_green_mode
+
+            # 更新按钮文本
+            if self.red_green_mode:
+                self.red_green_button.setText("普通模式")
+            else:
+                self.red_green_button.setText("红绿模式")
+            # 如果红绿模式开启，应用红绿模式逻辑
+            if self.red_green_mode:
+                self.apply_red_green_mode(self.current_image)
+            else:
+                if self.last_pixel_type == "cv2":
+                    self._4level_cv2()
+                else:
+                    self.grayscale_image()
+            # 如果当前有图像，重新应用灰度化处理(暂时不使用)
+            """if self.pixelated_image:
+                self.grayscale_image()"""
+        else:
+            QMessageBox.warning(self, "警告", "请先像素化图片")
 
     def export_image(self):
         if self.current_image:
