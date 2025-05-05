@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>像素处理器</title>
+    <style>
+        .container {
+            display: grid;
+            grid-template-columns: 200px 1fr 200px;
+            height: 100vh;
+            padding: 10px;
+            gap: 10px;
+        }
+        .control-panel button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px;
+        }
+        .canvas-container {
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #mainCanvas {
+            image-rendering: pixelated;
+            border: 1px solid #ddd;
+            max-width: 100%;
+            object-fit: contain;
+        }
+        .history-panel {
+            border-left: 1px solid #ccc;
+            padding-left: 10px;
+        }
+        .history-item {
+            padding: 5px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .history-item:hover {
+            background-color: #f5f5f5;
+        }
+        .current-step {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="control-panel">
+            <input type="file" id="fileInput" accept="image/*">
+            <label><input type="checkbox" id="keepRatio" checked> 保持比例</label>
+            <button onclick="pixelate()">像素化</button>
+            <button onclick="rotateImage()">旋转</button>
+            <button onclick="fourLevelGray()">四级灰度</button>
+            <button onclick="twoLevelGray()">二级灰度</button>
+            <label><input type="checkbox" id="redGreenMode"> 红绿模式</label>
+            <button onclick="addPixelGrid()">像素分割线</button>
+            <button onclick="exportImage()">导出图片</button>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="mainCanvas"></canvas>
+        </div>
+
+        <div class="history-panel">
+            <h4>操作历史（点击跳转）</h4>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const state = {
+    history: [],
+    currentStep: -1,
+    maxSteps: 15,
+    baseGrayData: null  // 存储原始灰度数据
+};
+
+const COLOR_MAP = {
+    85: { r: 144, g: 238, b: 144 },  // 浅绿色
+    170: { r: 255, g: 0, b: 0 }       // 红色
+};
+
+// 创建状态快照
+function createSnapshot(operation) {
+    return {
+        imageData: ctx.getImageData(0, 0, canvas.width, canvas.height),
+        baseGrayData: state.baseGrayData,
+        width: canvas.width,
+        height: canvas.height,
+        operation: operation,
+        redGreen: document.getElementById('redGreenMode').checked,
+        keepRatio: document.getElementById('keepRatio').checked,
+        timestamp: new Date().toLocaleTimeString()
+    };
+}
+
+// 保存状态
+function saveState(operation) {
+    state.history = state.history.slice(0, state.currentStep + 1);
+    const snapshot = createSnapshot(operation);
+    state.history.push(snapshot);
+    state.currentStep = Math.min(state.currentStep + 1, state.maxSteps - 1);
+    updateHistory();
+}
+
+// 恢复状态
+function restoreState(stepIndex) {
+    if (stepIndex < 0 || stepIndex >= state.history.length) return;
+
+    const snapshot = state.history[stepIndex];
+    canvas.width = snapshot.width;
+    canvas.height = snapshot.height;
+    ctx.putImageData(snapshot.imageData, 0, 0);
+
+    state.baseGrayData = snapshot.baseGrayData;
+    document.getElementById('redGreenMode').checked = snapshot.redGreen;
+    document.getElementById('keepRatio').checked = snapshot.keepRatio;
+
+    state.currentStep = stepIndex;
+    adjustCanvasDisplay();
+    updateHistory();
+}
+
+// 更新历史列表
+function updateHistory() {
+    const historyList = document.getElementById('historyList');
+    historyList.innerHTML = state.history
+        .map((snapshot, index) => `
+            <div class="history-item ${index === state.currentStep ? 'current-step' : ''}"
+                 onclick="restoreState(${index})">
+                ${snapshot.timestamp} - ${snapshot.operation}
+                ${snapshot.redGreen ? '🔴🟢' : ''}
+            </div>
+        `).join('');
+}
+
+// 自适应显示
+function adjustCanvasDisplay() {
+    const container = document.querySelector('.canvas-container');
+    const aspectRatio = canvas.width / canvas.height;
+    const maxDisplayWidth = container.clientWidth - 20;
+
+    canvas.style.maxWidth = `${maxDisplayWidth}px`;
+    canvas.style.width = `${maxDisplayWidth}px`;
+    canvas.style.height = `${maxDisplayWidth / aspectRatio}px`;
+}
+
+// 文件加载
+document.getElementById('fileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            adjustCanvasDisplay();
+            state.baseGrayData = null;  // 重置基础数据
+            saveState('加载图片');
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+// 红绿模式切换监听
+document.getElementById('redGreenMode').addEventListener('change', function() {
+    if (state.baseGrayData) {
+        const imageData = new ImageData(
+            new Uint8ClampedArray(state.baseGrayData.data),
+            state.baseGrayData.width,
+            state.baseGrayData.height
+        );
+
+        // 应用当前红绿模式状态
+        if (this.checked) {
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                if (data[i] in COLOR_MAP) {
+                    const color = COLOR_MAP[data[i]];
+                    data[i] = color.r;
+                    data[i+1] = color.g;
+                    data[i+2] = color.b;
+                }
+            }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        adjustCanvasDisplay();
+        saveState(`四级灰度${this.checked ? ' (红绿模式)' : ''}`);
+    }
+});
+
+// 四级灰度处理
+function fourLevelGray() {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // 生成基础灰度数据
+    const baseData = new ImageData(
+        new Uint8ClampedArray(data),
+        imageData.width,
+        imageData.height
+    );
+
+    // 进行基础灰度处理
+    for (let i = 0; i < data.length; i += 4) {
+        const avg = 0.3 * data[i] + 0.6 * data[i+1] + 0.1 * data[i+2];
+        let level = avg < 64 ? 0 : avg < 128 ? 85 : avg < 192 ? 170 : 255;
+        baseData.data[i] = baseData.data[i+1] = baseData.data[i+2] = level;
+    }
+
+    // 保存基础数据
+    state.baseGrayData = baseData;
+
+    // 应用当前红绿模式状态
+    const isRedGreen = document.getElementById('redGreenMode').checked;
+    if (isRedGreen) {
+        const effectData = new Uint8ClampedArray(baseData.data);
+        for (let i = 0; i < effectData.length; i += 4) {
+            if (effectData[i] in COLOR_MAP) {
+                const color = COLOR_MAP[effectData[i]];
+                effectData[i] = color.r;
+                effectData[i+1] = color.g;
+                effectData[i+2] = color.b;
+            }
+        }
+        ctx.putImageData(new ImageData(effectData, baseData.width, baseData.height), 0, 0);
+    } else {
+        ctx.putImageData(baseData, 0, 0);
+    }
+
+    adjustCanvasDisplay();
+    saveState(`四级灰度${isRedGreen ? ' (红绿模式)' : ''}`);
+}
+// 其他功能函数
+function pixelate() {
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    const keepRatio = document.getElementById('keepRatio').checked;
+
+    let targetWidth = keepRatio ? Math.round(63 * canvas.width/canvas.height) : 192;
+    let targetHeight = 63;
+
+    tempCanvas.width = targetWidth;
+    tempCanvas.height = targetHeight;
+    tempCtx.imageSmoothingEnabled = false;
+    tempCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = 192;
+    finalCanvas.height = 63;
+    const finalCtx = finalCanvas.getContext('2d');
+    finalCtx.fillStyle = 'white';
+    finalCtx.fillRect(0, 0, 192, 63);
+    finalCtx.drawImage(tempCanvas, (192 - targetWidth)/2, 0);
+
+    canvas.width = 192;
+    canvas.height = 63;
+    ctx.drawImage(finalCanvas, 0, 0);
+    adjustCanvasDisplay();
+    saveState('像素化');
+}
+
+function rotateImage() {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    tempCanvas.getContext('2d').drawImage(canvas, 0, 0);
+
+    const rotatedCanvas = document.createElement('canvas');
+    rotatedCanvas.width = canvas.height;
+    rotatedCanvas.height = canvas.width;
+    const rotatedCtx = rotatedCanvas.getContext('2d');
+
+    rotatedCtx.translate(rotatedCanvas.width/2, rotatedCanvas.height/2);
+    rotatedCtx.rotate(-Math.PI/2);
+    rotatedCtx.drawImage(tempCanvas, -tempCanvas.width/2, -tempCanvas.height/2);
+
+    canvas.width = rotatedCanvas.width;
+    canvas.height = rotatedCanvas.height;
+    ctx.drawImage(rotatedCanvas, 0, 0);
+    adjustCanvasDisplay();
+    saveState('旋转图片');
+}
+
+function twoLevelGray() {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const width = canvas.width;
+    const height = canvas.height;
+
+    const grayBuffer = new Uint8Array(width * height);
+    const integral = new Uint32Array(width * height);
+
+    for (let y = 0; y < height; y++) {
+        let rowSum = 0;
+        for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const gray = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+            grayBuffer[y * width + x] = gray;
+            rowSum += gray;
+            integral[y * width + x] = (y > 0 ? integral[(y-1)*width + x] : 0) + rowSum;
+        }
+    }
+
+    const blockSize = 11;
+    const offset = 2;
+    const halfBlock = Math.floor(blockSize / 2);
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const x1 = Math.max(0, x - halfBlock);
+            const x2 = Math.min(width-1, x + halfBlock);
+            const y1 = Math.max(0, y - halfBlock);
+            const y2 = Math.min(height-1, y + halfBlock);
+
+            const area = (x2 - x1 + 1) * (y2 - y1 + 1);
+            const sum = integral[y2*width + x2]
+                       - (y1 > 0 ? integral[(y1-1)*width + x2] : 0)
+                       - (x1 > 0 ? integral[y2*width + x1-1] : 0)
+                       + (x1 > 0 && y1 > 0 ? integral[(y1-1)*width + x1-1] : 0);
+
+            const threshold = sum / area - offset;
+            const grayValue = grayBuffer[y * width + x];
+            const binaryValue = grayValue >= threshold ? 255 : 0;
+
+            const dataIdx = (y * width + x) * 4;
+            data[dataIdx] = data[dataIdx+1] = data[dataIdx+2] = binaryValue;
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    adjustCanvasDisplay();
+    saveState('二级灰度化');
+}
+
+function addPixelGrid() {
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = canvas.width * 6;
+    scaledCanvas.height = canvas.height * 6;
+    const scaledCtx = scaledCanvas.getContext('2d');
+
+    scaledCtx.imageSmoothingEnabled = false;
+    scaledCtx.drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+
+    scaledCtx.strokeStyle = 'rgba(0, 0, 255, 1)';
+    scaledCtx.lineWidth = 1;
+
+    for (let x = 0; x <= scaledCanvas.width; x += 6) {
+        scaledCtx.beginPath();
+        scaledCtx.moveTo(x - 0.5, 0);
+        scaledCtx.lineTo(x - 0.5, scaledCanvas.height);
+        scaledCtx.stroke();
+    }
+
+    for (let y = 0; y <= scaledCanvas.height; y += 6) {
+        scaledCtx.beginPath();
+        scaledCtx.moveTo(0, y - 0.5);
+        scaledCtx.lineTo(scaledCanvas.width, y - 0.5);
+        scaledCtx.stroke();
+    }
+
+    canvas.width = scaledCanvas.width;
+    canvas.height = scaledCanvas.height;
+    ctx.drawImage(scaledCanvas, 0, 0);
+    adjustCanvasDisplay();
+    saveState('添加像素网格');
+}
+
+// 导出功能
+function exportImage() {
+    const currentState = state.history[state.currentStep];
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = currentState.width;
+    exportCanvas.height = currentState.height;
+    const exportCtx = exportCanvas.getContext('2d');
+    exportCtx.putImageData(currentState.imageData, 0, 0);
+
+    // 处理像素网格
+    if (currentState.operation.includes('像素网格')) {
+        const scaledCanvas = document.createElement('canvas');
+        scaledCanvas.width = exportCanvas.width * 6;
+        scaledCanvas.height = exportCanvas.height * 6;
+        const scaledCtx = scaledCanvas.getContext('2d');
+        scaledCtx.imageSmoothingEnabled = false;
+        scaledCtx.drawImage(exportCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+
+        scaledCtx.strokeStyle = 'rgba(0, 0, 255, 1)';
+        scaledCtx.lineWidth = 1;
+        for (let x = 0; x <= scaledCanvas.width; x += 6) {
+            scaledCtx.beginPath();
+            scaledCtx.moveTo(x - 0.5, 0);
+            scaledCtx.lineTo(x - 0.5, scaledCanvas.height);
+            scaledCtx.stroke();
+        }
+        for (let y = 0; y <= scaledCanvas.height; y += 6) {
+            scaledCtx.beginPath();
+            scaledCtx.moveTo(0, y - 0.5);
+            scaledCtx.lineTo(scaledCanvas.width, y - 0.5);
+            scaledCtx.stroke();
+        }
+        exportCanvas.width = scaledCanvas.width;
+        exportCanvas.height = scaledCanvas.height;
+        exportCtx.drawImage(scaledCanvas, 0, 0);
+    }
+
+    const link = document.createElement('a');
+    link.download = `pixel-art-${Date.now()}.png`;
+    link.href = exportCanvas.toDataURL();
+    link.click();
+}
+</script>
+</body>
+</html>
