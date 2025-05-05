@@ -135,7 +135,7 @@ function updateHistory() {
             <div class="history-item ${index === state.currentStep ? 'current-step' : ''}"
                  onclick="restoreState(${index})">
                 ${snapshot.timestamp} - ${snapshot.operation}
-                ${snapshot.redGreen ? '🔴🟢' : ''}
+                ${snapshot.redGreen ? '' : ''}
             </div>
         `).join('');
 }
