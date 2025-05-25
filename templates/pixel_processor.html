@@ -6,7 +6,7 @@
         .container {
             display: grid;
             grid-template-columns: 200px 1fr 200px;
-            height: 100vh;
+            height: calc(100vh - 80px);
             padding: 10px;
             gap: 10px;
         }
@@ -45,6 +45,45 @@
         .current-step {
             background-color: #f5f5f5;
         }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px; /* 增加高度 */
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            flex-direction: column; /* 垂直排列 */
+            align-items: center;
+            justify-content: center;
+            gap: 4px; /* 行间距 */
+            padding: 8px 0;
+        }
+
+        .footer-line {
+            display: flex;
+            align-items: center;
+            font-size: 12px; /* 第一行字体大小 */
+            color: #6c757d;
+        }
+
+        .footer-line:last-child {
+            font-size: 14px; /* 第二行保持原大小 */
+        }
+
+        .footer a {
+            display: flex;
+            align-items: center;
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .footer img {
+            width: 18px; /* 稍微调小图标 */
+            height: 18px;
+            margin-left: 6px;
+        }
     </style>
 </head>
 <body>
@@ -71,6 +110,14 @@
         </div>
     </div>
 
+     <div class="footer">
+        <div class="footer-line">An open sourced project based on MIT License</div>
+        <a href="https://github.com/caiji-xd" target="_blank" class="footer-line">
+            <span>Github caiji-xd, all rights reserved</span>
+            <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub Logo">
+        </a>
+    </div>
+
 <script>
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -78,15 +125,14 @@ const state = {
     history: [],
     currentStep: -1,
     maxSteps: 15,
-    baseGrayData: null  // 存储原始灰度数据
+    baseGrayData: null
 };
 
 const COLOR_MAP = {
-    85: { r: 144, g: 238, b: 144 },  // 浅绿色
-    170: { r: 255, g: 0, b: 0 }       // 红色
+    85: { r: 144, g: 238, b: 144 },
+    170: { r: 255, g: 0, b: 0 }
 };
 
-// 创建状态快照
 function createSnapshot(operation) {
     return {
         imageData: ctx.getImageData(0, 0, canvas.width, canvas.height),
@@ -100,7 +146,6 @@ function createSnapshot(operation) {
     };
 }
 
-// 保存状态
 function saveState(operation) {
     state.history = state.history.slice(0, state.currentStep + 1);
     const snapshot = createSnapshot(operation);
@@ -109,7 +154,6 @@ function saveState(operation) {
     updateHistory();
 }
 
-// 恢复状态
 function restoreState(stepIndex) {
     if (stepIndex < 0 || stepIndex >= state.history.length) return;
 
@@ -127,7 +171,6 @@ function restoreState(stepIndex) {
     updateHistory();
 }
 
-// 更新历史列表
 function updateHistory() {
     const historyList = document.getElementById('historyList');
     historyList.innerHTML = state.history
@@ -135,12 +178,10 @@ function updateHistory() {
             <div class="history-item ${index === state.currentStep ? 'current-step' : ''}"
                  onclick="restoreState(${index})">
                 ${snapshot.timestamp} - ${snapshot.operation}
-                ${snapshot.redGreen ? '' : ''}
             </div>
         `).join('');
 }
 
-// 自适应显示
 function adjustCanvasDisplay() {
     const container = document.querySelector('.canvas-container');
     const aspectRatio = canvas.width / canvas.height;
@@ -151,7 +192,6 @@ function adjustCanvasDisplay() {
     canvas.style.height = `${maxDisplayWidth / aspectRatio}px`;
 }
 
-// 文件加载
 document.getElementById('fileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
     const reader = new FileReader();
@@ -162,7 +202,7 @@ document.getElementById('fileInput').addEventListener('change', function(e) {
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
             adjustCanvasDisplay();
-            state.baseGrayData = null;  // 重置基础数据
+            state.baseGrayData = null;
             saveState('加载图片');
         };
         img.src = event.target.result;
@@ -170,7 +210,6 @@ document.getElementById('fileInput').addEventListener('change', function(e) {
     reader.readAsDataURL(file);
 });
 
-// 红绿模式切换监听
 document.getElementById('redGreenMode').addEventListener('change', function() {
     if (state.baseGrayData) {
         const imageData = new ImageData(
@@ -179,7 +218,6 @@ document.getElementById('redGreenMode').addEventListener('change', function() {
             state.baseGrayData.height
         );
 
-        // 应用当前红绿模式状态
         if (this.checked) {
             const data = imageData.data;
             for (let i = 0; i < data.length; i += 4) {
@@ -198,29 +236,24 @@ document.getElementById('redGreenMode').addEventListener('change', function() {
     }
 });
 
-// 四级灰度处理
 function fourLevelGray() {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
 
-    // 生成基础灰度数据
     const baseData = new ImageData(
         new Uint8ClampedArray(data),
         imageData.width,
         imageData.height
     );
 
-    // 进行基础灰度处理
     for (let i = 0; i < data.length; i += 4) {
         const avg = 0.3 * data[i] + 0.6 * data[i+1] + 0.1 * data[i+2];
         let level = avg < 64 ? 0 : avg < 128 ? 85 : avg < 192 ? 170 : 255;
         baseData.data[i] = baseData.data[i+1] = baseData.data[i+2] = level;
     }
 
-    // 保存基础数据
     state.baseGrayData = baseData;
 
-    // 应用当前红绿模式状态
     const isRedGreen = document.getElementById('redGreenMode').checked;
     if (isRedGreen) {
         const effectData = new Uint8ClampedArray(baseData.data);
@@ -240,7 +273,7 @@ function fourLevelGray() {
     adjustCanvasDisplay();
     saveState(`四级灰度${isRedGreen ? ' (红绿模式)' : ''}`);
 }
-// 其他功能函数
+
 function pixelate() {
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
@@ -375,7 +408,6 @@ function addPixelGrid() {
     saveState('添加像素网格');
 }
 
-// 导出功能
 function exportImage() {
     const currentState = state.history[state.currentStep];
     const exportCanvas = document.createElement('canvas');
@@ -384,7 +416,6 @@ function exportImage() {
     const exportCtx = exportCanvas.getContext('2d');
     exportCtx.putImageData(currentState.imageData, 0, 0);
 
-    // 处理像素网格
     if (currentState.operation.includes('像素网格')) {
         const scaledCanvas = document.createElement('canvas');
         scaledCanvas.width = exportCanvas.width * 6;
